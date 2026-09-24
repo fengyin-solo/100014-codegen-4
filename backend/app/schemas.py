@@ -19,6 +19,57 @@ class ActionResult(BaseModel):
     ok: bool
     message: str
     entry: dict[str, Any] | None = None
+    permission: dict[str, Any] | None = None
+
+
+class FieldPermission(BaseModel):
+    """单个字段在当前岗位下的可见/可写模式。"""
+
+    name: str
+    mode: str  # editable / readonly / hidden
+    sensitive: bool = False
+
+
+class ActionPermission(BaseModel):
+    name: str
+    enabled: bool
+
+
+class PermissionView(BaseModel):
+    """下发给前端的岗位权限元数据，列表页与详情页共用。"""
+
+    role: str
+    roleLabel: str
+    fields: list[FieldPermission]
+    canCreate: bool
+    canExport: bool
+    actions: list[ActionPermission]
+    notice: str
+    hiddenPlaceholder: str
+
+
+class DriverListResult(BaseModel):
+    """司机列表：记录已按岗位裁剪，权限元数据供页面渲染只读态。"""
+
+    items: list[dict[str, Any]]
+    total: int
+    page: int = 1
+    size: int = 20
+    permission: PermissionView
+
+
+class DriverDetailResult(BaseModel):
+    """司机详情：字段范围与列表页保持一致。"""
+
+    entry: dict[str, Any]
+    permission: PermissionView
+
+
+class DriverExportResult(BaseModel):
+    module: str
+    total: int
+    items: list[dict[str, Any]]
+    permission: PermissionView
 
 
 class EntryPayload(BaseModel):

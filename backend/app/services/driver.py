@@ -1,4 +1,8 @@
-"""司机管理业务规则：状态流转、字段校验与筛选口径都收在这里。"""
+"""司机管理业务规则：状态流转、字段校验与筛选口径都收在这里。
+
+本层只处理数据本身，不做岗位权限判定；字段裁剪与越权拦截在 router 层
+借助 app.security 完成，避免业务规则与权限规则互相缠绕。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -7,6 +11,7 @@ from app.store import store
 
 MODULE = "driver"
 REQUIRED_FIELDS = ["司机工号", "司机姓名", "联系电话"]
+OPTIONAL_FIELDS = ["驾驶证号", "从业资格证号", "所属车队"]
 STATUS_ORDER = ["待上岗", "在岗", "休息中", "已离职"]
 ACTION_RULES = {"安排上岗": "在岗", "排班休息": "休息中", "办理离职": "已离职"}
 NEGATIVE_ACTIONS = []
@@ -28,23 +33,27 @@ class DriverService:
             rows = [row for row in rows if row.get("status") == status]
         total = len(rows)
         start = max(page - 1, 0) * size
-        return rows[start:start + size], total
+        return [self._with_status(dict(row)) for row in rows[start:start + size]], total
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
-        return store.find(MODULE, entry_id)
+        entry = store.find(MODULE, entry_id)
+        return self._with_status(dict(entry)) if entry is not None else None
 
     def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
         missing = [field for field in REQUIRED_FIELDS if not str(values.get(field) or "").strip()]
         if missing:
             return None, missing
         rows = store.rows(MODULE)
-        entry = {"id": max((int(row.get("id", 0)) for row in rows), default=0) + 1}
+        entry: dict[str, Any] = {"id": max((int(row.get("id", 0)) for row in rows), default=0) + 1}
         entry.update({field: values.get(field) for field in REQUIRED_FIELDS})
+        for field in OPTIONAL_FIELDS:
+            if values.get(field) is not None:
+                entry[field] = values.get(field)
         entry["status"] = STATUS_ORDER[0]
         entry["pending"] = True
         entry["abnormal"] = False
         rows.append(entry)
-        return entry, []
+        return self._with_status(dict(entry)), []
 
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
         entry = store.find(MODULE, entry_id)
@@ -58,4 +67,9 @@ class DriverService:
         entry["status"] = target
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
-        return entry, f"司机档案已{action}"
+        return self._with_status(dict(entry)), f"司机档案已{action}"
+
+    def _with_status(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """“在途状态”与岗位动作驱动的在岗状态保持同一口径，列表/详情显示一致。"""
+        entry["在途状态"] = entry.get("status") or "待上岗"
+        return entry
